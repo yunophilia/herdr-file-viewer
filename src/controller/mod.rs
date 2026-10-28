@@ -46,7 +46,7 @@ use crate::presenter::{
     AnnotationEditorKind, AnnotationEditorView, AnnotationIndicatorsView, AnnotationOverviewView,
     AnnotationRowView, AnnotationTargetView, CharSelView, ContentSearch, DiscardConfirmView,
     FinderKind, FinderView, Focus, HelpView, LineSelectView, PaneGeometry, PickerRowView,
-    PickerView, PreviewProjection, PreviewViewports, ViewState,
+    PickerView, PreviewProjection, PreviewViewports, StatusChip, StatusChipView, ViewState,
 };
 use crate::preview::{
     BranchState, PreviewDocument, PreviewInteractionState, PreviewOrigin, PreviewPresentation,
@@ -2108,7 +2108,10 @@ impl Controller {
                     gutter: self.content_gutter_len(sl),
                 }
             });
+        // Chips borrow the node list, so they build before `nodes` moves into the struct.
+        let status_chips = self.status_chips(&nodes, selected, wrap);
         ViewState {
+            status_chips,
             nodes,
             selected,
             active: PreviewProjection {
@@ -2182,6 +2185,50 @@ impl Controller {
             prompt: self.bottom_line(),
             help: self.help_view(),
         }
+    }
+
+    /// The status-bar chips: live toggle state drawn as clickable targets. Every chip's click
+    /// dispatches the same handler as its key (the mouse layer stays additive, AC-18), and
+    /// showing the value means a toggle like `b` is no longer invisible on screen. The git
+    /// chips are omitted outside a repository, where those keys are inert (AC-26), and the view
+    /// chip only when a file is selected, where `v` can cycle.
+    fn status_chips(&self, nodes: &[Node], selected: usize, wrap: bool) -> Vec<StatusChipView> {
+        let mut chips = Vec::new();
+        if self.is_git_repo {
+            chips.push(StatusChipView {
+                chip: StatusChip::Baseline,
+                label: match self.baseline {
+                    Baseline::Base => "b: base".to_string(),
+                    Baseline::Head => "b: HEAD".to_string(),
+                },
+                on: self.baseline == Baseline::Base,
+            });
+            chips.push(StatusChipView {
+                chip: StatusChip::ChangedOnly,
+                label: "c: changed".to_string(),
+                on: self.changed_only,
+            });
+            chips.push(StatusChipView {
+                chip: StatusChip::StatusMode,
+                label: "d: status".to_string(),
+                on: self.status_mode,
+            });
+        }
+        if let Some(node) = nodes.get(selected)
+            && node.kind == NodeKind::File
+        {
+            chips.push(StatusChipView {
+                chip: StatusChip::View,
+                label: format!("v: {}", self.effective_mode(&node.path).label()),
+                on: true,
+            });
+        }
+        chips.push(StatusChipView {
+            chip: StatusChip::Wrap,
+            label: "w: wrap".to_string(),
+            on: wrap,
+        });
+        chips
     }
 
     /// Build the bottom-line string shown in `ViewState.prompt`. Single source of truth for all
@@ -2906,6 +2953,10 @@ impl Controller {
             Baseline::Head => Baseline::Base,
             Baseline::Base => Baseline::Head,
         };
+        self.set_flash(match self.baseline {
+            Baseline::Base => "Baseline: base branch",
+            Baseline::Head => "Baseline: HEAD",
+        });
         // Recompute the changed-set against the new baseline (AC-16) and keep the changed-only
         // filter consistent with it.
         self.set_changed(self.git.changed_set(self.baseline));
@@ -4005,6 +4056,8 @@ enum MouseRegion {
     /// The pinned preview identity title. Unlike `ContentTitle`, it only focuses the reference
     /// preview; active-only double-click behavior is unavailable from a pin.
     PinnedTitle,
+    /// A status-bar chip; clicking it fires the same toggle as its key.
+    StatusChip(StatusChip),
     Divider,
     /// The divider between pinned and active previews (separate from the existing tree divider).
     PreviewDivider,

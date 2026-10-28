@@ -22,6 +22,18 @@ pub enum ViewMode {
     SyntaxContent,
 }
 
+impl ViewMode {
+    /// The short display label (status bar, flashes).
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewMode::RenderedMarkdown => "rendered",
+            ViewMode::Diff => "diff",
+            ViewMode::FullDiff => "full-diff",
+            ViewMode::SyntaxContent => "source",
+        }
+    }
+}
+
 /// Which policy changed files use for their automatic initial view.
 ///
 /// `Content` means the normal file-type policy for paths that still exist (render Markdown,

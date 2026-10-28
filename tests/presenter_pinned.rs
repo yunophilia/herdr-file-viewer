@@ -47,6 +47,7 @@ fn state(pinned: PreviewProjection) -> ViewState {
         split_manual: false,
         zoomed: false,
         remote_notice_status: None,
+        status_chips: Vec::new(),
         picker: None,
         finder: None,
         annotation_count: 0,

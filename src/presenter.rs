@@ -40,6 +40,30 @@ pub struct FlashLine {
     pub dim: bool,
 }
 
+/// Which status-bar chip a cell of the bar belongs to. The chips mirror existing toggle keys;
+/// the controller dispatches a click on one to the same handler the key fires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusChip {
+    /// Diff baseline base/HEAD (`b`).
+    Baseline,
+    /// The changed-only tree filter (`c`).
+    ChangedOnly,
+    /// Git-status mode (`d`).
+    StatusMode,
+    /// The content pane's view mode (`v`).
+    View,
+    /// Content wrapping (`w`).
+    Wrap,
+}
+
+/// One status-bar chip: its identity (what a click dispatches), its drawn label (with the state,
+/// e.g. `b: HEAD`), and whether it reads as engaged (drawn highlighted).
+pub struct StatusChipView {
+    pub chip: StatusChip,
+    pub label: String,
+    pub on: bool,
+}
+
 /// Everything one preview region needs to project already-rendered content. Active and pinned
 /// previews deliberately use the same value so their notices, scroll offsets, wrapping, search,
 /// and scrollbars cannot drift into separate drawing implementations.
@@ -140,6 +164,9 @@ pub struct ViewState {
     /// When `Some`, one remote-notice status row is drawn across the bottom of the frame (the
     /// columns take the remaining rows). `None` reserves no row and leaves the layout unchanged.
     pub remote_notice_status: Option<String>,
+    /// The status-bar chips, in draw order. A nonempty list reserves a bar row along the bottom
+    /// (above the prompt row); an empty one draws nothing and keeps the layout unchanged.
+    pub status_chips: Vec<StatusChipView>,
     /// When `Some`, the worktree picker overlay is drawn on top of the two columns (AC-1, AC-5).
     /// `None` ⇒ no overlay.
     pub picker: Option<PickerView>,
@@ -1308,6 +1335,59 @@ fn draw_prompt_line(frame: &mut Frame, area: Rect, prompt: &str) {
     frame.render_widget(Paragraph::new(line), area);
 }
 
+/// The cell rect of every chip that fits on the bar row: each chip is its label padded by one
+/// cell each side, with one gap cell between chips; a chip that does not fit whole ends the row
+/// (later chips are dropped, never drawn partial). Shared by [`draw_status_bar`] and
+/// [`geometry`] so a click lands exactly on the chip drawn.
+fn status_chip_layout(bar: Rect, chips: &[StatusChipView]) -> Vec<(StatusChip, Rect)> {
+    let end = bar.x.saturating_add(bar.width);
+    let mut x = bar.x;
+    let mut placed = Vec::with_capacity(chips.len());
+    for (i, chip) in chips.iter().enumerate() {
+        x = x.saturating_add(u16::from(i > 0));
+        // Labels are controller-built from fixed strings, but measure them as drawn (the
+        // sanitize-control path is identity there, so the widths agree).
+        let w = 2u16.saturating_add(
+            Line::from(sanitize_control(&chip.label))
+                .width()
+                .min(u16::MAX as usize - 2) as u16,
+        );
+        if x.saturating_add(w) > end {
+            break;
+        }
+        placed.push((chip.chip, Rect::new(x, bar.y, w, 1)));
+        x = x.saturating_add(w);
+    }
+    placed
+}
+
+/// Draw the status/action bar: live state as clickable chips along the bottom edge. An engaged
+/// chip is drawn reversed (matching the other status rows' accent), an idle one dimmed. The
+/// chips render in [`status_chip_layout`] order, one paragraph — geometry feeds the same
+/// placement back for hit-testing.
+fn draw_status_bar(frame: &mut Frame, area: Rect, chips: &[StatusChipView]) {
+    // Draw only the chips the layout placed whole — the same prefix the hit-test geometry
+    // exposes, so nothing half-drawn pretends to be clickable.
+    let placed = status_chip_layout(area, chips);
+    let mut spans: Vec<Span> = Vec::with_capacity(chips.len() * 2);
+    for (i, (_, _)) in placed.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw(" "));
+        }
+        let chip = &chips[i];
+        let style = if chip.on {
+            Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        } else {
+            Style::new().fg(Color::DarkGray)
+        };
+        spans.push(Span::styled(
+            format!(" {} ", sanitize_control(&chip.label)),
+            style,
+        ));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
 fn pinned_space_notice(layout: &PreviewLayout, state: &ViewState) -> Option<String> {
     layout.pinned_hidden_for_space.then(|| {
         let path = state
@@ -1325,6 +1405,7 @@ fn structural_layout(area: Rect, state: &ViewState) -> PreviewLayout {
         area,
         has_prompt: state.prompt.is_some(),
         has_remote_status: state.remote_notice_status.is_some(),
+        has_status_bar: !state.status_chips.is_empty(),
         has_pin: state.pinned.is_some(),
         narrow_shows_tree: state.focus == Focus::Tree,
         tree_hidden: state.zoomed,
@@ -1430,6 +1511,9 @@ pub struct PaneGeometry {
     /// widths + `HELP_TAB_SEP`), so a click maps to the tab actually drawn. Empty when the overlay is
     /// closed. The controller hit-tests a left-click against these to switch sections (AC-10).
     pub help_tabs: Vec<(usize, Rect)>,
+    /// The cell rect of each status-bar chip actually drawn, from the same [`status_chip_layout`]
+    /// the draw uses, so a click maps to the chip under the cursor. Empty when no bar is drawn.
+    pub status_chips: Vec<(StatusChip, Rect)>,
 }
 
 /// Compute the [`PaneGeometry`] for hit-testing the current frame — the same layout [`draw`]
@@ -1564,6 +1648,12 @@ pub fn geometry(area: Rect, state: &ViewState) -> PaneGeometry {
         None => (None, 0, 0, None, Vec::new()),
     };
 
+    // Status bar: the SAME chip placement the draw uses, so a click maps to the chip drawn.
+    let status_chips = layout
+        .status_bar
+        .map(|bar| status_chip_layout(bar, &state.status_chips))
+        .unwrap_or_default();
+
     PaneGeometry {
         area_x: body.x,
         area_width: body.width,
@@ -1594,6 +1684,7 @@ pub fn geometry(area: Rect, state: &ViewState) -> PaneGeometry {
         help_body_rows,
         help_vbar,
         help_tabs,
+        status_chips,
     }
 }
 
@@ -1614,6 +1705,9 @@ pub fn draw(frame: &mut Frame, state: &ViewState) -> PreviewViewports {
     }
     if let (Some(area), Some(prompt)) = (prompt_area, state.prompt.as_deref()) {
         draw_prompt_line(frame, area, prompt);
+    }
+    if let Some(area) = layout.status_bar {
+        draw_status_bar(frame, area, &state.status_chips);
     }
     if let Some(area) = layout.tree {
         draw_tree(frame, area, state);

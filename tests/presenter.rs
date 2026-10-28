@@ -7,13 +7,14 @@ use herdr_file_viewer::presenter::{
     AnnotationEditorKind, AnnotationEditorView, AnnotationIndicatorsView, AnnotationOverviewView,
     AnnotationRowView, AnnotationTargetView, CharSelView, ContentSearch, DiscardConfirmView,
     FinderKind, FinderView, FlashLine, Focus, HelpView, LineSelectView, PickerRowView, PickerView,
-    PreviewProjection, ViewState, draw,
+    PreviewProjection, StatusChip, StatusChipView, ViewState, draw, geometry,
 };
 use herdr_file_viewer::render::to_text;
 use herdr_file_viewer::search::Match;
 use herdr_file_viewer::tree::{Node, NodeKind};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::layout::Rect;
 use std::path::PathBuf;
 
 fn node(path: &str, kind: NodeKind, depth: usize, expanded: bool, status: Option<Status>) -> Node {
@@ -88,6 +89,7 @@ fn sample_state() -> ViewState {
         split_manual: false,
         zoomed: false,
         remote_notice_status: None,
+        status_chips: Vec::new(),
         picker: None,
         finder: None,
         annotation_count: 0,
@@ -1232,6 +1234,68 @@ fn geometry_matches_the_wide_two_column_layout() {
         "a wide layout has a draggable divider"
     );
     assert_eq!((g.area_x, g.area_width), (0, 100));
+}
+
+fn chips_state() -> ViewState {
+    let mut state = sample_state();
+    state.status_chips = vec![
+        StatusChipView {
+            chip: StatusChip::Baseline,
+            label: "b: HEAD".into(),
+            on: false,
+        },
+        StatusChipView {
+            chip: StatusChip::ChangedOnly,
+            label: "c: changed".into(),
+            on: true,
+        },
+        StatusChipView {
+            chip: StatusChip::Wrap,
+            label: "w: wrap".into(),
+            on: false,
+        },
+    ];
+    state
+}
+
+#[test]
+fn status_bar_snapshot() {
+    insta::assert_snapshot!("presenter_status_bar", render(&chips_state(), 100, 24));
+}
+
+#[test]
+fn status_bar_chips_get_hit_rects_matching_the_drawn_row() {
+    // The bar is drawn from `status_chip_layout` and the geometry is fed back from the same
+    // helper, so a click rect must equal the chip's drawn cells exactly (padded label, one gap
+    // cell between chips, on the bottom row when no prompt/notice is open).
+    let g = geometry(Rect::new(0, 0, 100, 24), &chips_state());
+    let [(baseline, b_rect), (changed, c_rect), (wrap, w_rect)] = g.status_chips[..] else {
+        panic!("all three chips fit a 100-column bar: {:?}", g.status_chips);
+    };
+    assert_eq!(baseline, StatusChip::Baseline);
+    assert_eq!(b_rect, Rect::new(0, 23, 9, 1), "' b: HEAD ' padded");
+    assert_eq!(changed, StatusChip::ChangedOnly);
+    assert_eq!(
+        c_rect,
+        Rect::new(10, 23, 12, 1),
+        "one gap cell, then ' c: changed '"
+    );
+    assert_eq!(wrap, StatusChip::Wrap);
+    assert_eq!(w_rect, Rect::new(23, 23, 9, 1), "' w: wrap ' padded");
+
+    // A bar too narrow for a chip drops it instead of drawing it partial — and a dropped chip
+    // has no hit rect, so nothing unclickable is ever drawn.
+    let narrow = geometry(Rect::new(0, 0, 15, 24), &chips_state());
+    assert_eq!(
+        narrow.status_chips.len(),
+        1,
+        "only the first chip fits 15 columns"
+    );
+
+    // No chips → no bar row, no hit rects, and the body reclaims the height.
+    let plain = geometry(Rect::new(0, 0, 100, 24), &sample_state());
+    assert!(plain.status_chips.is_empty());
+    assert!(plain.tree_inner.unwrap().height > g.tree_inner.unwrap().height);
 }
 
 #[test]

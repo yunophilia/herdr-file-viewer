@@ -308,6 +308,12 @@ impl Controller {
                 self.focus = Focus::Pinned;
                 Effects::redraw()
             }
+            // A status-bar chip IS a click target: it fires the same toggle as its key. No
+            // double-click pairing — each click is a complete action.
+            MouseRegion::StatusChip(chip) => {
+                self.last_click = None;
+                self.dispatch_status_chip(chip)
+            }
             // Scrollbars are handled on press/drag (above), not as a click; reaching here is inert.
             MouseRegion::Divider
             | MouseRegion::PreviewDivider
@@ -321,6 +327,18 @@ impl Controller {
                 self.last_click = None;
                 Effects::noop()
             }
+        }
+    }
+
+    /// A status-bar chip click: fire the same handler the chip's key fires — the chip is a
+    /// mouse shortcut onto the existing toggle paths, never a second implementation.
+    fn dispatch_status_chip(&mut self, chip: StatusChip) -> Effects {
+        match chip {
+            StatusChip::Baseline => self.toggle_baseline(),
+            StatusChip::ChangedOnly => self.toggle_changed_only(),
+            StatusChip::StatusMode => self.toggle_status_mode(),
+            StatusChip::View => self.cycle_view(),
+            StatusChip::Wrap => self.toggle_wrap(),
         }
     }
 
@@ -573,6 +591,10 @@ impl Controller {
         // are present only when that bar is drawn — so a hit on a `Some` track is a real bar. Check
         // them before the text rects. The tree's vertical bar no longer shares the divider column.
         let pos = Position { x: col, y: row };
+        // The status bar's own row: its chip rects never overlap a pane region.
+        if let Some((chip, _)) = self.geom.status_chips.iter().find(|(_, r)| r.contains(pos)) {
+            return MouseRegion::StatusChip(*chip);
+        }
         if self.geom.content_vbar.is_some_and(|r| r.contains(pos)) {
             return MouseRegion::ContentVBar;
         }

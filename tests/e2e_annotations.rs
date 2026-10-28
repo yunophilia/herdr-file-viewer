@@ -41,7 +41,9 @@ fn decode_rfc4648(input: &[u8]) -> Result<Vec<u8>, String> {
 
     let mut decoded = Vec::with_capacity(input.len() / 4 * 3);
     let chunk_count = input.len() / 4;
-    for (index, chunk) in input.chunks_exact(4).enumerate() {
+    // `as_chunks` over `chunks_exact(4)`: same iteration, and it satisfies clippy's
+    // chunks_exact_with_constant_size lint on newer toolchains.
+    for (index, chunk) in input.as_chunks::<4>().0.iter().enumerate() {
         let is_last = index + 1 == chunk_count;
         let padding = match (chunk[2], chunk[3]) {
             (b'=', b'=') => 2,

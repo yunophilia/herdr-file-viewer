@@ -16,7 +16,7 @@ use herdr_file_viewer::git::{Baseline, Status};
 use herdr_file_viewer::herdr::HerdrCli;
 use herdr_file_viewer::intent::Intent;
 use herdr_file_viewer::opener::{Opener, OpenerOutcome};
-use herdr_file_viewer::presenter::{Focus, PaneGeometry};
+use herdr_file_viewer::presenter::{Focus, PaneGeometry, StatusChip};
 use herdr_file_viewer::render::Renderers;
 use herdr_file_viewer::update::spotlight_policy::{
     SpotlightCache, SpotlightInput, cache_delta, project,
@@ -1271,6 +1271,138 @@ fn toggle_baseline_recomputes_the_changed_set_and_updates_state() {
 }
 
 #[test]
+fn status_bar_chip_click_fires_the_same_toggle_as_the_key() {
+    // The status bar is the mouse path onto the toggle keys: a chip click lands in
+    // `dispatch_status_chip`, which calls the very handler the key fires — so a chip click and
+    // its key must never be able to drift into two behaviors.
+    let dir = TempDir::new();
+    let (mut ctrl, changed_calls, _) = controller(dir.path(), true, StubGit::default(), false);
+    changed_calls.lock().unwrap().clear();
+    let mut g = wide_geometry();
+    g.status_chips = vec![
+        (
+            StatusChip::Baseline,
+            Rect {
+                x: 0,
+                y: 24,
+                width: 10,
+                height: 1,
+            },
+        ),
+        (
+            StatusChip::ChangedOnly,
+            Rect {
+                x: 11,
+                y: 24,
+                width: 12,
+                height: 1,
+            },
+        ),
+    ];
+    ctrl.set_pane_geometry(g);
+
+    // Baseline chip == `b`, including the new on-screen flash.
+    ctrl.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 2, 24));
+    assert_eq!(
+        ctrl.baseline(),
+        Baseline::Base,
+        "baseline chip behaves like `b`"
+    );
+    assert_eq!(
+        ctrl.flash_text(),
+        Some("Baseline: base branch"),
+        "the baseline flip is visible without reading the tree (fixes the silent-`b` symptom)"
+    );
+    assert!(
+        !ctrl.changed_only(),
+        "an unrelated toggle is untouched by a baseline chip click"
+    );
+
+    // Changed-only chip == `c` (the stub has no changed entries, so the filter empties the tree
+    // only if one is recorded — assert the flag, not the tree shape).
+    assert!(!ctrl.changed_only());
+    ctrl.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 12, 24));
+    assert!(ctrl.changed_only(), "changed chip behaves like `c`");
+
+    // A click on the bar row but between/after the chips is inert.
+    ctrl.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 30, 24));
+    assert_eq!(ctrl.baseline(), Baseline::Base, "bar padding is not a chip");
+    assert!(ctrl.changed_only(), "bar padding is not a chip");
+}
+
+#[test]
+fn status_bar_view_and_wrap_chips_show_and_flip_live_state() {
+    // Beyond dispatch, the chips are the visible record of state that keyboard toggles changed
+    // silently before: after a chip (or key) flips wrap, the projected chip flips with it.
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("notes.md"), "# Title\n").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    // Select the file so the view chip exists.
+    ctrl.handle(Intent::NavDown);
+    let chip_on = |ctrl: &Controller, chip: StatusChip| {
+        ctrl.view_state()
+            .status_chips
+            .iter()
+            .find(|c| c.chip == chip)
+            .map(|c| c.on)
+    };
+    assert_eq!(
+        chip_on(&ctrl, StatusChip::Wrap),
+        Some(true),
+        "markdown wraps by default"
+    );
+
+    let mut g = wide_geometry();
+    g.status_chips = vec![(
+        StatusChip::Wrap,
+        Rect {
+            x: 0,
+            y: 24,
+            width: 10,
+            height: 1,
+        },
+    )];
+    ctrl.set_pane_geometry(g);
+    ctrl.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 1, 24));
+    assert_eq!(
+        chip_on(&ctrl, StatusChip::Wrap),
+        Some(false),
+        "clicking the wrap chip flips the toggle the bar displays"
+    );
+    // The keyboard path and the chip path share state: `w` flips it back.
+    ctrl.handle(Intent::ToggleWrap);
+    assert_eq!(chip_on(&ctrl, StatusChip::Wrap), Some(true));
+}
+
+#[test]
+fn status_bar_view_chip_cycles_the_selected_files_view() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("notes.md"), "# Title\n").unwrap();
+    // Non-git markdown cycles rendered ↔ source (AC-11).
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    ctrl.handle(Intent::NavDown);
+    assert_eq!(ctrl.selected_view_mode(), Some(ViewMode::RenderedMarkdown));
+
+    let mut g = wide_geometry();
+    g.status_chips = vec![(
+        StatusChip::View,
+        Rect {
+            x: 0,
+            y: 24,
+            width: 12,
+            height: 1,
+        },
+    )];
+    ctrl.set_pane_geometry(g);
+    ctrl.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 1, 24));
+    assert_eq!(
+        ctrl.selected_view_mode(),
+        Some(ViewMode::SyntaxContent),
+        "clicking the view chip behaves like `v`"
+    );
+}
+
+#[test]
 fn git_intents_are_inert_without_a_repo() {
     // AC-26: in a non-git directory, git-only intents do nothing and never error.
     let dir = TempDir::new();
@@ -2462,6 +2594,7 @@ fn wide_geometry() -> PaneGeometry {
         help_body_rows: 0,
         help_vbar: None,
         help_tabs: Vec::new(),
+        status_chips: Vec::new(),
     }
 }
 

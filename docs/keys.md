@@ -139,6 +139,12 @@ The viewer is keyboard-first; the mouse is additive and on by default:
 | **Drag** a scrollbar | Scroll that pane: drag ↕ on a vertical bar, ↔ on a horizontal bar; pressing the track jumps there |
 | **Drag** the divider | Resize the tree / content split |
 | **Drag** over the content text | **Select and copy text**: the selection highlights character-by-character as you drag (auto-scrolling past an edge) and is copied to the clipboard on release; no mode needed. Works in wrapped views (prose/markdown) too. `Esc`, a click elsewhere, or switching files clears the highlight |
+| **Click** a status-bar chip | Perform the toggle the chip shows (`b` baseline, `c` changed-only, `d` status mode, `v` view mode, `w` wrap); see below |
+
+**Status bar.** The bottom row of the viewer is a status/action bar showing the live toggle
+state as clickable chips: the diff baseline (`b`), the changed-only filter (`c`), git-status
+mode (`d`), the current view mode (`v`), and wrap (`w`). A lit chip means the toggle is engaged;
+a dim chip is idle. Clicking a chip does exactly what its key does, and the key still works.
 
 **`Shift`+drag is left to your terminal**, so its native select-and-copy still works while the
 viewer owns ordinary clicks: herdr reserves `Shift`+mouse for exactly this. (herdr forwards

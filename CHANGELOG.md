@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- A status bar along the bottom edge shows the live diff baseline (`b`), changed-only filter (`c`), git-status mode (`d`), view mode (`v`), and wrap (`w`) state as clickable chips. Clicking a chip performs the same toggle as its key, and toggling `b` now flashes the new baseline on screen instead of changing nothing visibly. → [keys](docs/keys.md#mouse)
+
 ### Fixed
 - A repository can no longer run a program through a submodule `diff.external` (or, on older git, a submodule textconv) while a diff is shown. Nested submodule diffs stay a one-line gitlink summary. → [security](SECURITY.md)
 - The `?` Keybindings list and the remappable-actions table now describe `L` as tree-scroll or line-select, and `Tab` as cycling tree, active preview, and pinned preview. → [keys](docs/keys.md) · [configuration](docs/configuration.md#keybindings)
