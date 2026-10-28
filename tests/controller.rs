@@ -1402,6 +1402,65 @@ fn status_bar_view_chip_cycles_the_selected_files_view() {
     );
 }
 
+// ── clickable view / search controls ──────────────────────────────────────────────────
+
+#[test]
+fn clicking_the_content_title_search_chip_opens_the_search_prompt() {
+    // The `/ find` chip shares the content title border; a click on it is search (not the title's
+    // zoom double-click), and it runs `Intent::OpenSearch` so click and key cannot diverge.
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "x\n").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    // Select the file, then a drawn frame tells us where the chip actually landed.
+    ctrl.handle(Intent::NavDown);
+    let view = ctrl.view_state();
+    let g = herdr_file_viewer::presenter::geometry(Rect::new(0, 0, 100, 24), &view);
+    let chip = g
+        .content_search_rect
+        .expect("a 100-wide frame draws the chip");
+    ctrl.set_pane_geometry(g);
+
+    assert!(!ctrl.prompt_open(), "no prompt before the click");
+    let fx = ctrl.handle_mouse(mouse(
+        MouseEventKind::Up(MouseButton::Left),
+        chip.x + 1,
+        chip.y,
+    ));
+    assert!(fx.redraw);
+    assert!(
+        ctrl.prompt_open(),
+        "the search chip opens the in-file search prompt, like `/`"
+    );
+    assert_eq!(
+        ctrl.prompt_mode(),
+        Some(herdr_file_viewer::infile::PromptMode::Search)
+    );
+}
+
+#[test]
+fn clicking_the_content_title_beside_the_search_chip_still_selects_the_title() {
+    // The chip only claims its own cells: the rest of the title border stays the zoom toggle's
+    // target (double-click), so the new affordance does not steal the existing gesture.
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "x\n").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    ctrl.handle(Intent::NavDown);
+    let view = ctrl.view_state();
+    let g = herdr_file_viewer::presenter::geometry(Rect::new(0, 0, 100, 24), &view);
+    let chip = g.content_search_rect.expect("chip drawn");
+    let title = g.content_title_rect.expect("title drawn");
+    ctrl.set_pane_geometry(g);
+
+    // Just left of the chip: still the title.
+    let fx = ctrl.handle_mouse(mouse(
+        MouseEventKind::Up(MouseButton::Left),
+        chip.x.saturating_sub(1).max(title.x),
+        title.y,
+    ));
+    assert!(fx.redraw, "the title still handles its own clicks");
+    assert!(!ctrl.prompt_open(), "a title click is not a search");
+}
+
 // ── context menu ──────────────────────────────────────────────────────────────────────
 
 /// The controller's live context menu (items, cursor), read through the same `ViewState` the
@@ -2824,6 +2883,7 @@ fn wide_geometry() -> PaneGeometry {
             width: 58,
             height: 1,
         }),
+        content_search_rect: None,
         content_vbar: None,
         content_hbar: None,
         pinned_inner: None,

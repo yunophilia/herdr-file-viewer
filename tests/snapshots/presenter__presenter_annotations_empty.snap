@@ -1,8 +1,9 @@
 ---
 source: tests/presenter.rs
+assertion_line: 4493
 expression: out
 ---
-"┌r─────────────────────────────────────┐┌main.rs───────────────────────────────────────────────────┐"
+"┌r─────────────────────────────────────┐┌main.rs─────────────────────────────────────────────/ find┐"
 "│  ▾ src                               ││Showing first 5000 lines (truncated)                      │"
 "│M     main.rs                         ││delta not found — showing plain diff                      │"
 "│    ▾ inner                           ││fn main() {                                               │"

@@ -1,8 +1,9 @@
 ---
 source: tests/presenter_narrow.rs
-expression: "render(&state(60, Focus::Content), 60, 20)"
+assertion_line: 183
+expression: "render(&state(Focus::Content), 60, 20)"
 ---
-"┌main.rs───────────────────────────────────────────────────┐"
+"┌main.rs─────────────────────────────────────────────/ find┐"
 "│delta not found — showing plain diff                      │"
 "│fn main() {}                                              │"
 "│                                                          │"

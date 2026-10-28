@@ -1,8 +1,9 @@
 ---
 source: tests/presenter_narrow.rs
+assertion_line: 247
 expression: out
 ---
-"┌main.rs─────────────────────────┐"
+"┌main.rs───────────────────/ find┐"
 "│┌Annotations (12)──────────────┐│"
 "││                              ││"
 "││ src/file-07.rs:8 — narrow a… ││"

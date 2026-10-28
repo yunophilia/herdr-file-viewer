@@ -1139,6 +1139,25 @@ fn content_block(preview: &PreviewProjection) -> Block<'static> {
     }
 }
 
+/// The cell rect of the content column's clickable search chip (`/ find`) on its top border:
+/// right-aligned, flush to the right border corner, mirroring how [`draw_content`] places the
+/// `title_top` line. Single source of truth for both the draw and [`geometry`], so a click maps to
+/// the chip drawn. `None` when the column is too narrow to keep a readable filename beside it —
+/// the chip must never crowd the title it shares the border with.
+fn content_search_rect(area: Rect) -> Option<Rect> {
+    let width = CONTENT_SEARCH_HINT.chars().count() as u16;
+    if area.height == 0 || area.width < CONTENT_SEARCH_MIN_WIDTH {
+        return None;
+    }
+    let right_edge = area.x.saturating_add(area.width.saturating_sub(1));
+    Some(Rect::new(
+        right_edge.saturating_sub(width),
+        area.y,
+        width,
+        1,
+    ))
+}
+
 /// Draw the right column: a notices strip (if any) above the content pane. Returns the
 /// content viewport `(width, height)` so the controller can clamp scrolling to it.
 fn draw_content(
@@ -1184,7 +1203,21 @@ fn draw_content(
         Line::from(chip.as_str()).width() + 1 + Line::from(hint_text.as_str()).width()
             <= area.width.saturating_sub(2) as usize
     });
+    // The in-file search target (`/`) rides the active column's top border, right-aligned, so the
+    // content pane has a visible click affordance for search. A right-aligned title draws after the
+    // left one, so the filename's budget shrinks by the chip plus a gap: a long name truncates
+    // rather than running under the chip. `content_search_rect` is the same placement `geometry`
+    // hit-tests, so the drawn chip and the clickable chip cannot drift.
+    let search_chip = active.then(|| content_search_rect(area)).flatten();
+    if let Some(chip) = search_chip {
+        title = truncate_title(&title, area.width.saturating_sub(chip.width + 1));
+    }
     let mut block = content_block(preview).title(title);
+    if search_chip.is_some() {
+        block = block.title_top(
+            Line::styled(CONTENT_SEARCH_HINT, Style::new().fg(Color::Reset)).right_aligned(),
+        );
+    }
     if active {
         block = block.title_bottom(hint);
     }
@@ -1459,6 +1492,9 @@ pub struct PaneGeometry {
     /// Named `*_rect` to distinguish it from [`PreviewProjection::title`] (the filename string).
     /// `None` when the content column is not drawn.
     pub content_title_rect: Option<Rect>,
+    /// Hit rect for the right-aligned `/ find` chip on the active content column's top border.
+    /// `None` when the active column is not drawn or too narrow to hold it.
+    pub content_search_rect: Option<Rect>,
     /// The content pane's in-pane scrollbar tracks (1-cell rects), present only when drawn.
     pub content_vbar: Option<Rect>,
     pub content_hbar: Option<Rect>,
@@ -1585,6 +1621,7 @@ pub fn geometry(area: Rect, state: &ViewState) -> PaneGeometry {
         width: r.width.saturating_sub(2),
         height: 1,
     });
+    let content_search_rect = content.and_then(content_search_rect);
     let (content_inner, content_vbar, content_hbar) =
         match content.map(|r| content_block(active).inner(r)) {
             Some(ci) => {
@@ -1693,6 +1730,7 @@ pub fn geometry(area: Rect, state: &ViewState) -> PaneGeometry {
         tree_hbar,
         content_inner,
         content_title_rect,
+        content_search_rect,
         content_vbar,
         content_hbar,
         pinned_inner,
@@ -2146,6 +2184,12 @@ const HELP_TITLE: &str = "Help";
 /// without opening any modal. Static (first-party), so no sanitization is needed
 /// beyond the defense-in-depth `sanitize_control` applied at the call site (AC-27).
 const HELP_HINT: &str = "? help";
+/// The clickable search affordance on the content pane's top border (`/`). Static/derived, so no
+/// sanitization is needed beyond the defense-in-depth pass at the draw site (AC-27).
+const CONTENT_SEARCH_HINT: &str = "/ find";
+/// The narrowest active content column that keeps the `/ find` chip: below this the chip would
+/// crowd the filename off its shared border row, so it is dropped (the `/` key still searches).
+const CONTENT_SEARCH_MIN_WIDTH: u16 = 24;
 /// The help overlay's desired interior WIDTH (columns) before clamping to the frame. A generous
 /// fixed size (the changelog/about bodies are unbounded — the box does NOT size to content like the
 /// finder; it clamps to the frame and the body scrolls).

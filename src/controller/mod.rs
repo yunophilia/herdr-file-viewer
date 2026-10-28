@@ -4087,6 +4087,10 @@ enum MouseRegion {
     Pinned,
     /// The content column's top-border title (filename). Double-click toggles zoom (#106).
     ContentTitle,
+    /// The right-aligned `/ find` chip on the content title border; clicking it opens the in-file
+    /// search prompt, the same as `/`. Checked before [`MouseRegion::ContentTitle`], which the chip
+    /// sits inside.
+    ContentSearch,
     /// The pinned preview identity title. Unlike `ContentTitle`, it only focuses the reference
     /// preview; active-only double-click behavior is unavailable from a pin.
     PinnedTitle,

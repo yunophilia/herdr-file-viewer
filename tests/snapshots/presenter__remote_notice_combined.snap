@@ -1,9 +1,9 @@
 ---
 source: tests/presenter.rs
-assertion_line: 1700
+assertion_line: 1790
 expression: out
 ---
-"┌main.rs───────────────────────────────────────────────────┐"
+"┌main.rs─────────────────────────────────────────────/ find┐"
 "│Showing first 5000 lines (truncated)                      │"
 "│delta not found — showing plain diff                      │"
 "│fn main() {                                               │"

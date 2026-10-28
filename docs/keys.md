@@ -140,6 +140,7 @@ The viewer is keyboard-first; the mouse is additive and on by default:
 | **Drag** the divider | Resize the tree / content split |
 | **Drag** over the content text | **Select and copy text**: the selection highlights character-by-character as you drag (auto-scrolling past an edge) and is copied to the clipboard on release; no mode needed. Works in wrapped views (prose/markdown) too. `Esc`, a click elsewhere, or switching files clears the highlight |
 | **Click** a status-bar chip | Perform the toggle the chip shows (`b` baseline, `c` changed-only, `d` status mode, `v` view mode, `w` wrap); see below |
+| **Click** the `/ find` chip on the content title | Open the in-file search prompt (same as `/`) |
 | **Right-click** a tree row | Select that row and open its action menu: open/zoom, expand or collapse a folder, copy path, copy absolute path, annotate, open in editor, pin |
 | **Right-click** the content pane | Open its action menu: cycle view, wrap, diff presentation, copy selection (while a selection stands) |
 | `↑` / `↓`, wheel, `Enter`, `Esc` in a context menu | Move the highlight, perform the entry, dismiss |
@@ -153,7 +154,8 @@ a dim chip is idle. Clicking a chip does exactly what its key does, and the key 
 **Context menu.** Every entry names the key that performs it, so the menu is a mouse surface
 onto the existing keyboard vocabulary rather than a separate feature: nothing here is
 mouse-only. Selecting an entry runs the same handler as its key. The menu dismisses on `Esc`,
-`q`, a click outside it, or on performing an entry.
+`q`, a click outside it, or on performing an entry. On a terminal too narrow to share the
+content border with a filename, the `/ find` chip is dropped; `/` still searches.
 
 **`Shift`+drag is left to your terminal**, so its native select-and-copy still works while the
 viewer owns ordinary clicks: herdr reserves `Shift`+mouse for exactly this. (herdr forwards

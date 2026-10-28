@@ -1,8 +1,9 @@
 ---
 source: tests/presenter.rs
+assertion_line: 3338
 expression: "render(&line_select_state(4, 2, 4), 100, 24)"
 ---
-"┌r─────────────────────────────────────┐┌main.rs───────────────────────────────────────────────────┐"
+"┌r─────────────────────────────────────┐┌main.rs─────────────────────────────────────────────/ find┐"
 "│  ▾ src                               ││ line one                                                 │"
 "│M     main.rs                         │││line two                                                 │"
 "│    ▾ inner                           │││line three                                               │"

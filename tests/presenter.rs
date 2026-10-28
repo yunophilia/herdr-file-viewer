@@ -1301,6 +1301,57 @@ fn status_bar_chips_get_hit_rects_matching_the_drawn_row() {
 }
 
 #[test]
+fn content_search_chip_hit_rect_matches_the_drawn_border_cells() {
+    // The `/ find` chip is drawn and hit-tested from the same placement, so the fed-back rect must
+    // be exactly the cells the right-aligned title lands on: flush to the right border corner of
+    // the active column's top border.
+    let state = sample_state();
+    let g = geometry(Rect::new(0, 0, 100, 24), &state);
+    let chip = g
+        .content_search_rect
+        .expect("a 100-wide frame holds the chip");
+    let active = g
+        .content_title_rect
+        .expect("the active column is drawn with a title border");
+    assert_eq!(chip.y, active.y, "the chip rides the title border");
+    assert_eq!(chip.height, 1);
+    assert_eq!(
+        chip.x + chip.width,
+        active.x + active.width,
+        "flush to the interior's right edge (the title rect itself is inset from the border)"
+    );
+    assert_eq!(chip.width, "/ find".chars().count() as u16);
+
+    // The chip is inside the title rect, which is why `hit_test` must check it first.
+    let chip_pos = ratatui::layout::Position {
+        x: chip.x + 1,
+        y: chip.y,
+    };
+    assert!(active.contains(chip_pos), "the chip sits inside the title");
+
+    // The drawn row carries the label, so the rect is not offering a click on empty cells.
+    let out = render(&state, 100, 24);
+    let top = out.lines().next().expect("a first row");
+    assert!(top.contains("/ find"), "the chip is drawn: {top:?}");
+}
+
+#[test]
+fn content_search_chip_is_dropped_on_columns_too_narrow_to_keep_a_filename() {
+    // Below the minimum width the chip would crowd the filename it shares the border with, so it
+    // is neither drawn nor hit-tested - a rect for an undrawn chip would be a dead click target.
+    let g = geometry(Rect::new(0, 0, 20, 24), &sample_state());
+    assert_eq!(
+        g.content_search_rect, None,
+        "a 20-column frame has no room for both"
+    );
+    let out = render(&sample_state(), 20, 24);
+    assert!(
+        !out.contains("/ find"),
+        "a dropped chip is not drawn either: {out:?}"
+    );
+}
+
+#[test]
 fn context_menu_popup_and_entry_rects_follow_the_shared_layout() {
     // The popup is drawn and hit-tested from one helper, so the fed-back rects must describe
     // exactly the cells the draw paints: a bordered popup anchored at the click cell with one

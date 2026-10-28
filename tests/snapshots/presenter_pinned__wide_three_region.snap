@@ -1,8 +1,9 @@
 ---
 source: tests/presenter_pinned.rs
+assertion_line: 140
 expression: output
 ---
-"┌r─────────────────┐┌active.rs───────────────────────────────────────────────────────────────────┐┌Pinned: [review]──────────────────────────────────┐"
+"┌r─────────────────┐┌active.rs─────────────────────────────────────────────────────────────/ find┐┌Pinned: [review]──────────────────────────────────┐"
 "│                  ││active notice                                                               ││pinned notice                                     │"
 "│                  ││ACTIVE needle                                                               ││PINNED needle                                     │"
 "│                  ││active second row                                                           ││pinned second row                                 │"

@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format is based on
 ### Added
 - A status bar along the bottom edge shows the live diff baseline (`b`), changed-only filter (`c`), git-status mode (`d`), view mode (`v`), and wrap (`w`) state as clickable chips. Clicking a chip performs the same toggle as its key, and toggling `b` now flashes the new baseline on screen instead of changing nothing visibly. → [keys](docs/keys.md#mouse)
 - Right-click a tree row or the content pane for a context menu of that surface's actions. Every entry names the key that does the same thing, so nothing is mouse-only; the menu dismisses on `Esc`, a click outside, or on performing an entry. → [keys](docs/keys.md#mouse)
+- A clickable `/ find` chip on the content title opens the in-file search prompt, the same as the `/` key. → [keys](docs/keys.md#mouse)
 
 ### Fixed
 - A repository can no longer run a program through a submodule `diff.external` (or, on older git, a submodule textconv) while a diff is shown. Nested submodule diffs stay a one-line gitlink summary. → [security](SECURITY.md)

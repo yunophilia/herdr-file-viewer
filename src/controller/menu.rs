@@ -48,7 +48,7 @@ impl Controller {
                 self.dispatch_render();
                 self.tree_menu_items()
             }
-            MouseRegion::Content | MouseRegion::ContentTitle => {
+            MouseRegion::Content | MouseRegion::ContentTitle | MouseRegion::ContentSearch => {
                 self.last_click = None;
                 self.focus = Focus::Content;
                 self.content_menu_items()

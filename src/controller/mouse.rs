@@ -289,6 +289,13 @@ impl Controller {
                 }
                 Effects::redraw()
             }
+            MouseRegion::ContentSearch => {
+                // The `/ find` chip is a mouse shortcut onto `Intent::OpenSearch`, so the click
+                // and the key share one handler and cannot drift. No double-click pairing.
+                self.last_click = None;
+                self.focus = Focus::Content;
+                self.handle(Intent::OpenSearch)
+            }
             MouseRegion::ContentTitle => {
                 // Double-click the content title (filename border) toggles zoom: hide/show the
                 // tree without needing `z`. Complements tree double-click on a file (zoom on) so
@@ -627,6 +634,15 @@ impl Controller {
             // still exceed the node count (the empty area below the last node): the click handler
             // treats that as inert, while the wheel still scrolls the column.
             return MouseRegion::TreeRow((row - t.y) as usize + self.geom.tree_scroll as usize);
+        }
+        // The `/ find` chip rides inside the title border, so it is tested first: a click there is
+        // search, not the title's zoom double-click.
+        if self
+            .geom
+            .content_search_rect
+            .is_some_and(|r| r.contains(pos))
+        {
+            return MouseRegion::ContentSearch;
         }
         // Title is the top border of the content column (outside `content_inner`); check before
         // the text interior so a click on the filename toggles zoom rather than only focusing.

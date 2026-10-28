@@ -1,8 +1,9 @@
 ---
 source: tests/presenter.rs
+assertion_line: 3649
 expression: "render(&help_state(), 100, 24)"
 ---
-"┌r─────────────────────────────────────┐┌main.rs───────────────────────────────────────────────────┐"
+"┌r─────────────────────────────────────┐┌main.rs─────────────────────────────────────────────/ find┐"
 "│  ▾ src    ┌Help: What's New  ▶ About  Settings───────────────────────────────────────┐           │"
 "│M     main.│                                                                          │           │"
 "│    ▾ inner│                             Herdr File Viewer                            │           │"
