@@ -62,6 +62,7 @@ fn state(focus: Focus) -> ViewState {
         pinned_foreign_root: None,
         prompt: None,
         help: None,
+        context_menu: None,
     }
 }
 

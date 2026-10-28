@@ -206,6 +206,20 @@ pub struct ViewState {
     /// When `Some`, the in-app help overlay is drawn on top of everything else (AC-1, AC-5).
     /// `None` ⇒ no overlay. Drawn last in [`draw`] so it sits above the picker and finder.
     pub help: Option<HelpView>,
+    /// When `Some`, the right-click context menu popup is drawn, anchored at its open cell.
+    pub context_menu: Option<ContextMenuView>,
+}
+
+/// The right-click context menu's draw model (an owned snapshot of the controller's menu state,
+/// so the Presenter stays borrow-free). Each label already names the key that performs the same
+/// action — the menu is a mouse surface onto the keyboard vocabulary, not a separate feature.
+pub struct ContextMenuView {
+    /// Entry labels, in draw order.
+    pub items: Vec<String>,
+    /// The highlighted entry (keyboard arrows / wheel move it, Enter/click performs it).
+    pub cursor: usize,
+    /// The cell the menu opened at; the popup anchors here, clamped inside the frame.
+    pub anchor: (u16, u16),
 }
 
 /// The worktree picker's draw model (an owned snapshot of the controller's picker state, so
@@ -1514,6 +1528,12 @@ pub struct PaneGeometry {
     /// The cell rect of each status-bar chip actually drawn, from the same [`status_chip_layout`]
     /// the draw uses, so a click maps to the chip under the cursor. Empty when no bar is drawn.
     pub status_chips: Vec<(StatusChip, Rect)>,
+    /// The context menu's popup rect while it is open (a press inside it never dismisses;
+    /// a press outside does). `None` when closed.
+    pub menu_popup: Option<Rect>,
+    /// One hit rect per visible context-menu entry, from the same [`context_menu_layout`] the
+    /// draw uses. Empty when the menu is closed.
+    pub menu_items: Vec<Rect>,
 }
 
 /// Compute the [`PaneGeometry`] for hit-testing the current frame — the same layout [`draw`]
@@ -1654,6 +1674,15 @@ pub fn geometry(area: Rect, state: &ViewState) -> PaneGeometry {
         .map(|bar| status_chip_layout(bar, &state.status_chips))
         .unwrap_or_default();
 
+    // Context menu: the SAME popup/entry placement the draw uses.
+    let (menu_popup, menu_items) = match &state.context_menu {
+        Some(menu) => {
+            let ml = context_menu_layout(area, menu);
+            (Some(ml.popup), ml.items)
+        }
+        None => (None, Vec::new()),
+    };
+
     PaneGeometry {
         area_x: body.x,
         area_width: body.width,
@@ -1685,6 +1714,8 @@ pub fn geometry(area: Rect, state: &ViewState) -> PaneGeometry {
         help_vbar,
         help_tabs,
         status_chips,
+        menu_popup,
+        menu_items,
     }
 }
 
@@ -1748,6 +1779,10 @@ pub fn draw(frame: &mut Frame, state: &ViewState) -> PreviewViewports {
     }
     if let Some(confirm) = &state.discard_confirm {
         draw_discard_confirm(frame, frame.area(), confirm);
+    }
+    // The context menu draws above the columns (it popped over them), below the help overlay.
+    if let Some(menu) = &state.context_menu {
+        draw_context_menu(frame, frame.area(), menu);
     }
     // The in-app help overlay draws LAST — on top of the picker/finder (AC-1, AC-5).
     if let Some(help) = &state.help {
@@ -2621,6 +2656,77 @@ fn draw_annotation_editor(frame: &mut Frame, area: Rect, editor: &AnnotationEdit
             Paragraph::new(Line::styled(error, Style::new().fg(Color::Yellow))),
             error_area,
         );
+    }
+}
+
+/// The computed geometry of the context-menu popup, shared between [`draw_context_menu`] and
+/// [`geometry`] so the drawn entries and the hit-test rects can never drift. `items` holds one
+/// rect per _visible_ entry; an entry clipped by a tiny frame has no rect and is not clickable.
+struct ContextMenuLayout {
+    /// The bordered popup rect (used to `Clear` and to dismiss on a press outside).
+    popup: Rect,
+    /// One row rect per entry, the full inner width (so the highlight and the clickable row
+    /// span the popup edge to edge).
+    items: Vec<Rect>,
+}
+
+/// Compute the context menu's popup and entry rects: anchored at the cell that opened it,
+/// clamped so the whole popup stays inside `area`. Both [`draw_context_menu`] and [`geometry`]
+/// call this, mirroring [`picker_overlay_layout`]/[`finder_overlay_layout`].
+fn context_menu_layout(area: Rect, menu: &ContextMenuView) -> ContextMenuLayout {
+    let max_item = menu
+        .items
+        .iter()
+        .map(|i| {
+            Line::from(sanitize_control(i))
+                .width()
+                .min(u16::MAX as usize) as u16
+        })
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let want_w = max_item
+        .saturating_add(2)
+        .saturating_add(PICKER_PADDING * 2);
+    let want_h = (menu.items.len().min(u16::MAX as usize) as u16)
+        .saturating_add(2)
+        .saturating_add(PICKER_PADDING * 2);
+    let width = want_w.min(area.width);
+    let height = want_h.min(area.height);
+    // Anchor at the click cell, flipping back into the frame when it would overflow right/below.
+    let (ax, ay) = menu.anchor;
+    let x = ax.max(area.x).min(area.right().saturating_sub(width));
+    let y = ay.max(area.y).min(area.bottom().saturating_sub(height));
+    let popup = Rect::new(x, y, width, height);
+    let inner = modal_frame().inner(popup);
+    let visible = (inner.height as usize).min(menu.items.len());
+    let items = (0..visible)
+        .map(|i| Rect::new(inner.x, inner.y + i as u16, inner.width, 1))
+        .collect();
+    ContextMenuLayout { popup, items }
+}
+
+/// Draw the right-click context menu as a small bordered popup at its anchor: one row per entry
+/// (sanitized, AC-27), the cursor row reversed. No title or footer — the entries themselves name
+/// their keys, and the menu opens/dismisses entirely by mouse.
+fn draw_context_menu(frame: &mut Frame, area: Rect, menu: &ContextMenuView) {
+    let layout = context_menu_layout(area, menu);
+    let block = modal_frame().border_style(modal_border_style());
+    frame.render_widget(Clear, layout.popup);
+    frame.render_widget(block, layout.popup);
+    for (i, row) in layout.items.iter().enumerate() {
+        // Highlight spans the full row: pad the label to the inner width before styling.
+        let label = format!(
+            "{:<width$}",
+            sanitize_control(&menu.items[i]),
+            width = row.width as usize
+        );
+        let style = if i == menu.cursor {
+            Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        } else {
+            Style::new()
+        };
+        frame.render_widget(Paragraph::new(Line::styled(label, style)), *row);
     }
 }
 

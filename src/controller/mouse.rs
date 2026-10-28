@@ -20,6 +20,8 @@ impl Controller {
         //   starts a divider/scrollbar drag while the mode is active (AC-8/AC-9/AC-12).
         // - Help / Finder ARE mouse-interactive (wheel scrolls, click selects/switches): route to
         //   their own handler, which consumes every event and never leaks to the columns (AC-21).
+        // - ContextMenu owns the pointer: a click on an entry performs it, a click outside
+        //   dismisses the menu, and nothing reaches the columns beneath (same hazard as Picker).
         // - None: no modal → the two-column mouse handler below.
         match self.modal {
             Modal::Picker(_)
@@ -31,6 +33,7 @@ impl Controller {
             Modal::LineSelect(_) => self.handle_line_select_mouse(ev),
             Modal::Help(_) => self.handle_help_mouse(ev),
             Modal::Finder(_) => self.handle_finder_mouse(ev),
+            Modal::ContextMenu(_) => self.handle_menu_mouse(ev),
             Modal::None => self.handle_column_mouse(ev),
         }
     }
@@ -125,6 +128,9 @@ impl Controller {
             MouseEventKind::ScrollUp => self.scroll_at(col, row, -self.wheel_step),
             MouseEventKind::ScrollRight => self.hscroll_at(col, row, HSCROLL_STEP as i32),
             MouseEventKind::ScrollLeft => self.hscroll_at(col, row, -(HSCROLL_STEP as i32)),
+            // A right press opens the context menu for the surface under the cursor (tree row
+            // or content pane); anywhere else it is inert.
+            MouseEventKind::Down(MouseButton::Right) => self.open_context_menu(col, row),
             MouseEventKind::Down(MouseButton::Left) => {
                 // A press in the content pane begins an ambient character selection; on the divider a
                 // resize drag; on a scrollbar a scroll drag AND a jump to the pressed position
@@ -576,7 +582,7 @@ impl Controller {
 
     /// Which region of the last-drawn frame a cell falls in. The divider is checked first (it
     /// sits between the columns); a tree click maps to a visible node index by its row.
-    fn hit_test(&self, col: u16, row: u16) -> MouseRegion {
+    pub(super) fn hit_test(&self, col: u16, row: u16) -> MouseRegion {
         if let Some(dx) = self.geom.divider_x
             && (col == dx || col + 1 == dx)
         {

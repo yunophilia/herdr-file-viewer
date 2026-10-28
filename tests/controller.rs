@@ -1402,6 +1402,256 @@ fn status_bar_view_chip_cycles_the_selected_files_view() {
     );
 }
 
+// ── context menu ──────────────────────────────────────────────────────────────────────
+
+/// The controller's live context menu (items, cursor), read through the same `ViewState` the
+/// Presenter draws, so these tests assert the state the user would actually see.
+fn menu_labels(ctrl: &Controller) -> Option<Vec<String>> {
+    ctrl.view_state().context_menu.map(|m| m.items)
+}
+
+#[test]
+fn right_click_a_tree_row_selects_it_and_opens_its_action_menu() {
+    // The menu acts on the row under the cursor, so a right-click selects that row first (exactly
+    // like a left-click) and then offers that row's actions - never a stale selection's.
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "x\n").unwrap();
+    std::fs::write(dir.path().join("b.rs"), "y\n").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    ctrl.set_pane_geometry(wide_geometry());
+    assert_eq!(selected_name(&ctrl), "a.rs");
+
+    let fx = ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 2, 2));
+    assert!(fx.redraw, "opening the menu repaints");
+    assert_eq!(
+        selected_name(&ctrl),
+        "b.rs",
+        "the right-click selected the row under the cursor"
+    );
+    let items = menu_labels(&ctrl).expect("the menu is open");
+    assert!(
+        items.iter().any(|i| i.contains("Open full-screen")),
+        "a file row offers open: {items:?}"
+    );
+    assert!(
+        items
+            .iter()
+            .any(|i| i.contains("Copy path") && i.contains('y')),
+        "every entry names its key, so AC-18 stays visible: {items:?}"
+    );
+    assert!(
+        items.iter().any(|i| i.contains("Pin preview")),
+        "a file row can be pinned: {items:?}"
+    );
+}
+
+#[test]
+fn right_click_a_directory_offers_expand_or_collapse() {
+    let dir = TempDir::new();
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    std::fs::write(dir.path().join("sub/inner.rs"), "x\n").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    ctrl.set_pane_geometry(wide_geometry());
+
+    ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 2, 1));
+    let items = menu_labels(&ctrl).expect("the directory menu is open");
+    assert!(
+        items
+            .iter()
+            .any(|i| i.contains("Collapse directory") || i.contains("Expand directory")),
+        "a directory offers its toggle: {items:?}"
+    );
+    assert!(
+        !items.iter().any(|i| i.contains("Open in editor")),
+        "editor hand-off is a file action only: {items:?}"
+    );
+}
+
+#[test]
+fn menu_entry_performs_the_same_action_as_its_key() {
+    // Selecting an entry runs through `Controller::handle`, the identical path the key takes, and
+    // closes the menu. Compare against a fresh controller driven by the key.
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "x\n").unwrap();
+    let (mut by_menu, copied_menu) = controller_with_clipboard(dir.path(), false);
+    let (mut by_key, copied_key) = controller_with_clipboard(dir.path(), false);
+    by_menu.set_pane_geometry(wide_geometry());
+
+    by_menu.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 2, 1));
+    let items = menu_labels(&by_menu).expect("menu open");
+    let copy_idx = items
+        .iter()
+        .position(|i| i.contains("Copy path"))
+        .expect("a copy-path entry");
+    // Drive the entry the way the mouse does: the menu's own cursor, then Activate.
+    by_menu.set_menu_cursor(copy_idx);
+    let fx = by_menu.handle(Intent::Activate);
+    assert!(fx.redraw, "performing an entry repaints");
+    assert!(menu_labels(&by_menu).is_none(), "the entry closes the menu");
+
+    by_key.handle(Intent::CopyRepoPath);
+    assert_eq!(
+        copied_menu.lock().unwrap().as_slice(),
+        copied_key.lock().unwrap().as_slice(),
+        "the menu entry and its key copy exactly the same thing"
+    );
+}
+
+#[test]
+fn menu_dismisses_on_escape_outside_click_and_entry_selection() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "x\n").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    let mut g = wide_geometry();
+    // A popup covering rows 1..=6 in the content column, so "outside" is unambiguous.
+    g.menu_popup = Some(Rect {
+        x: 41,
+        y: 1,
+        width: 20,
+        height: 6,
+    });
+    ctrl.set_pane_geometry(g);
+
+    // Esc.
+    ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 2, 1));
+    assert!(menu_labels(&ctrl).is_some(), "opened");
+    ctrl.handle(Intent::Close);
+    assert!(menu_labels(&ctrl).is_none(), "Esc closes the menu");
+
+    // A left click outside the popup dismisses it and is swallowed - the click must NOT change
+    // the selection underneath (the modal owns the pointer).
+    ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 2, 1));
+    assert!(menu_labels(&ctrl).is_some(), "reopened");
+    let before = selected_name(&ctrl);
+    ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, 5));
+    assert!(menu_labels(&ctrl).is_none(), "an outside click closes it");
+    assert_eq!(
+        selected_name(&ctrl),
+        before,
+        "the dismissing click did not reach the columns"
+    );
+
+    // A right click outside also dismisses.
+    ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 2, 1));
+    assert!(menu_labels(&ctrl).is_some(), "reopened again");
+    ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 60, 20));
+    assert!(
+        menu_labels(&ctrl).is_none(),
+        "a right click outside closes it"
+    );
+}
+
+#[test]
+fn a_click_on_the_popup_border_keeps_the_menu_open() {
+    // Only a click outside the whole popup dismisses. A press on its border or padding is inside
+    // the menu surface, so it neither performs an entry nor closes the menu - otherwise a slightly
+    // imprecise click would look like a cancellation.
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "x\n").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    let mut g = wide_geometry();
+    g.menu_popup = Some(Rect {
+        x: 41,
+        y: 1,
+        width: 20,
+        height: 6,
+    });
+    // An entry row well inside the popup, so the border cell below is clearly not one.
+    g.menu_items = vec![Rect {
+        x: 43,
+        y: 3,
+        width: 16,
+        height: 1,
+    }];
+    ctrl.set_pane_geometry(g);
+    ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 2, 1));
+    assert!(menu_labels(&ctrl).is_some(), "opened");
+
+    let fx = ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 41, 1));
+    assert!(!fx.redraw, "a border click does nothing");
+    assert!(
+        menu_labels(&ctrl).is_some(),
+        "a click on the popup border does not dismiss it"
+    );
+}
+
+#[test]
+fn keys_are_inert_beneath_an_open_context_menu() {
+    // The menu is modal for keys too: a toggle key must not fire the viewer action underneath.
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "x\n").unwrap();
+    let (mut ctrl, changed_calls, _) = controller(dir.path(), true, StubGit::default(), false);
+    changed_calls.lock().unwrap().clear(); // ignore the initial load in new()
+    ctrl.set_pane_geometry(wide_geometry());
+    ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 2, 1));
+    assert!(menu_labels(&ctrl).is_some());
+
+    let baseline = ctrl.baseline();
+    ctrl.handle(Intent::ToggleBaseline);
+    assert_eq!(
+        ctrl.baseline(),
+        baseline,
+        "a key that would toggle the baseline is swallowed by the menu"
+    );
+    assert!(
+        changed_calls.lock().unwrap().is_empty(),
+        "and no git work was triggered beneath the menu"
+    );
+}
+
+#[test]
+fn right_click_on_the_content_pane_offers_content_actions_only() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("notes.md"), "# Title\n").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    ctrl.set_pane_geometry(wide_geometry());
+    ctrl.handle(Intent::NavDown); // select the markdown file
+
+    ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 50, 5));
+    let items = menu_labels(&ctrl).expect("the content menu is open");
+    assert!(
+        items
+            .iter()
+            .any(|i| i.contains("Cycle view") && i.contains('v')),
+        "content actions include the view cycle: {items:?}"
+    );
+    assert!(
+        items.iter().any(|i| i.contains("Toggle wrap")),
+        "and wrap: {items:?}"
+    );
+    assert!(
+        !items.iter().any(|i| i.contains("Copy path")),
+        "path copies are row actions, not content actions: {items:?}"
+    );
+    assert!(
+        !items.iter().any(|i| i.contains("Copy selection")),
+        "copy-selection appears only while a selection stands: {items:?}"
+    );
+}
+
+#[test]
+fn right_click_outside_the_actionable_surfaces_is_inert() {
+    // The status bar and dividers are not menu surfaces: a right-click there opens nothing.
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "x\n").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    let mut g = wide_geometry();
+    g.status_chips = vec![(
+        StatusChip::Wrap,
+        Rect {
+            x: 0,
+            y: 23,
+            width: 10,
+            height: 1,
+        },
+    )];
+    ctrl.set_pane_geometry(g);
+
+    let fx = ctrl.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), 2, 23));
+    assert!(!fx.redraw, "nothing to open on a chip");
+    assert!(menu_labels(&ctrl).is_none(), "no menu opened");
+}
+
 #[test]
 fn git_intents_are_inert_without_a_repo() {
     // AC-26: in a non-git directory, git-only intents do nothing and never error.
@@ -2595,6 +2845,8 @@ fn wide_geometry() -> PaneGeometry {
         help_vbar: None,
         help_tabs: Vec::new(),
         status_chips: Vec::new(),
+        menu_popup: None,
+        menu_items: Vec::new(),
     }
 }
 

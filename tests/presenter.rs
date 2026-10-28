@@ -5,9 +5,10 @@ use herdr_file_viewer::annotation::LineRange;
 use herdr_file_viewer::git::Status;
 use herdr_file_viewer::presenter::{
     AnnotationEditorKind, AnnotationEditorView, AnnotationIndicatorsView, AnnotationOverviewView,
-    AnnotationRowView, AnnotationTargetView, CharSelView, ContentSearch, DiscardConfirmView,
-    FinderKind, FinderView, FlashLine, Focus, HelpView, LineSelectView, PickerRowView, PickerView,
-    PreviewProjection, StatusChip, StatusChipView, ViewState, draw, geometry,
+    AnnotationRowView, AnnotationTargetView, CharSelView, ContentSearch, ContextMenuView,
+    DiscardConfirmView, FinderKind, FinderView, FlashLine, Focus, HelpView, LineSelectView,
+    PickerRowView, PickerView, PreviewProjection, StatusChip, StatusChipView, ViewState, draw,
+    geometry,
 };
 use herdr_file_viewer::render::to_text;
 use herdr_file_viewer::search::Match;
@@ -102,6 +103,7 @@ fn sample_state() -> ViewState {
         pinned_foreign_root: None,
         prompt: None,
         help: None,
+        context_menu: None,
     }
 }
 
@@ -1296,6 +1298,77 @@ fn status_bar_chips_get_hit_rects_matching_the_drawn_row() {
     let plain = geometry(Rect::new(0, 0, 100, 24), &sample_state());
     assert!(plain.status_chips.is_empty());
     assert!(plain.tree_inner.unwrap().height > g.tree_inner.unwrap().height);
+}
+
+#[test]
+fn context_menu_popup_and_entry_rects_follow_the_shared_layout() {
+    // The popup is drawn and hit-tested from one helper, so the fed-back rects must describe
+    // exactly the cells the draw paints: a bordered popup anchored at the click cell with one
+    // full-width row per entry inside it.
+    let mut state = sample_state();
+    state.context_menu = Some(ContextMenuView {
+        items: vec!["Open full-screen  Enter".into(), "Copy path  y".into()],
+        cursor: 1,
+        anchor: (50, 6),
+    });
+    let area = Rect::new(0, 0, 100, 24);
+    let g = geometry(area, &state);
+    let popup = g.menu_popup.expect("an open menu has a popup rect");
+    assert_eq!(g.menu_items.len(), 2, "one hit rect per entry");
+
+    // Anchored at the click cell: the popup's top-left corner is the anchor.
+    assert_eq!((popup.x, popup.y), (50, 6));
+    // Each entry row is the popup's padded interior, one row tall, stacked in order (the modal
+    // frame insets its interior by the border plus a one-cell gutter on every side).
+    let inset = 2; // border + PICKER_PADDING
+    let first = g.menu_items[0];
+    let second = g.menu_items[1];
+    assert_eq!(first.x, popup.x + inset, "inside the border and padding");
+    assert_eq!(
+        first.width,
+        popup.width - inset * 2,
+        "the full interior width"
+    );
+    assert_eq!(first.y, popup.y + inset, "inside the border and padding");
+    assert_eq!(second.y, first.y + 1, "entries stack one row apart");
+
+    // Every hit rect is inside the popup, so "a press on an entry" and "a press inside the
+    // popup" can never disagree about the same cell.
+    for row in &g.menu_items {
+        assert!(
+            row.x >= popup.x
+                && row.x + row.width <= popup.x + popup.width
+                && row.y >= popup.y
+                && row.y < popup.y + popup.height,
+            "entry {row:?} lies inside popup {popup:?}"
+        );
+    }
+
+    // Near the bottom-right edge the popup flips back inside the frame instead of drawing off it.
+    state.context_menu = Some(ContextMenuView {
+        items: vec!["Copy path  y".into()],
+        cursor: 0,
+        anchor: (99, 23),
+    });
+    let g = geometry(area, &state);
+    let popup = g.menu_popup.expect("still open");
+    assert!(
+        popup.x + popup.width <= area.width,
+        "clamped inside: {popup:?}"
+    );
+    assert!(
+        popup.y + popup.height <= area.height,
+        "clamped inside: {popup:?}"
+    );
+}
+
+#[test]
+fn closed_context_menu_exposes_no_click_targets() {
+    // With no menu open there is neither a popup nor entry rects, so a stray click cannot land on
+    // an invisible popup.
+    let g = geometry(Rect::new(0, 0, 100, 24), &sample_state());
+    assert_eq!(g.menu_popup, None);
+    assert!(g.menu_items.is_empty());
 }
 
 #[test]

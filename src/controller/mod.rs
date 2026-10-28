@@ -28,6 +28,7 @@ mod git_apply;
 mod help;
 mod infile;
 mod lineselect;
+mod menu;
 mod mouse;
 mod picker;
 mod pinned;
@@ -44,9 +45,10 @@ use crate::intent::Intent;
 use crate::picker::PickerState;
 use crate::presenter::{
     AnnotationEditorKind, AnnotationEditorView, AnnotationIndicatorsView, AnnotationOverviewView,
-    AnnotationRowView, AnnotationTargetView, CharSelView, ContentSearch, DiscardConfirmView,
-    FinderKind, FinderView, Focus, HelpView, LineSelectView, PaneGeometry, PickerRowView,
-    PickerView, PreviewProjection, PreviewViewports, StatusChip, StatusChipView, ViewState,
+    AnnotationRowView, AnnotationTargetView, CharSelView, ContentSearch, ContextMenuView,
+    DiscardConfirmView, FinderKind, FinderView, Focus, HelpView, LineSelectView, PaneGeometry,
+    PickerRowView, PickerView, PreviewProjection, PreviewViewports, StatusChip, StatusChipView,
+    ViewState,
 };
 use crate::preview::{
     BranchState, PreviewDocument, PreviewInteractionState, PreviewOrigin, PreviewPresentation,
@@ -63,6 +65,7 @@ use crate::view_policy::{
 use annotation::{AnnotationEditorState, AnnotationListState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use git_apply::PreviewStamp;
+use menu::ContextMenuState;
 use pinned::PinnedSnapshot;
 use ratatui::layout::Position;
 use ratatui::text::{Line, Text};
@@ -632,6 +635,9 @@ type StatusResult = (BTreeMap<PathBuf, Status>, BTreeMap<PathBuf, Status>);
 /// - `DiscardConfirm`: the confirm raised when an action would discard unexported annotations.
 ///   While open the run loop routes raw keys to `handle_discard_confirm_key`, and `handle()` /
 ///   `handle_mouse()` return early, so a leaked intent can't replace it or move the tree beneath.
+/// - `ContextMenu`: the right-click menu of entries for the surface under the cursor. Entries
+///   name their key and run through the same intent handlers; keys and mouse stay live in it
+///   (arrows/Enter, click/wheel), Esc/`q`/a click outside dismisses.
 enum Modal {
     None,
     Picker(PickerState),
@@ -645,6 +651,7 @@ enum Modal {
     /// The confirm raised when an action would discard unexported annotations. Carries what to do
     /// once the user decides; the store it guards is the controller's.
     DiscardConfirm(DiscardAction),
+    ContextMenu(ContextMenuState),
 }
 
 /// What a [`Modal::DiscardConfirm`] proceeds with once the user confirms: the two paths that
@@ -718,6 +725,18 @@ impl Modal {
     fn prompt(&self) -> Option<&PromptState> {
         match self {
             Modal::Prompt(s) => Some(s),
+            _ => None,
+        }
+    }
+    fn context_menu(&self) -> Option<&ContextMenuState> {
+        match self {
+            Modal::ContextMenu(s) => Some(s),
+            _ => None,
+        }
+    }
+    fn context_menu_mut(&mut self) -> Option<&mut ContextMenuState> {
+        match self {
+            Modal::ContextMenu(s) => Some(s),
             _ => None,
         }
     }
@@ -2184,6 +2203,7 @@ impl Controller {
             }),
             prompt: self.bottom_line(),
             help: self.help_view(),
+            context_menu: self.menu_view(),
         }
     }
 
@@ -2338,6 +2358,7 @@ impl Controller {
         // including discard confirm, owns its keys outside `handle`, so a leaked intent is inert.
         match self.modal {
             Modal::Picker(_) => return self.handle_picker_intent(intent),
+            Modal::ContextMenu(_) => return self.handle_menu_intent(intent),
             Modal::Finder(_)
             | Modal::ProjectSearch(_)
             | Modal::Prompt(_)
@@ -3498,6 +3519,19 @@ impl Controller {
     /// Whether the go-to-file finder overlay is currently open.
     pub fn finder_open(&self) -> bool {
         self.modal.finder().is_some()
+    }
+
+    /// Whether the right-click context menu is currently open. Exposed for tests.
+    pub fn context_menu_open(&self) -> bool {
+        self.modal.context_menu().is_some()
+    }
+
+    /// Put the open context menu's highlight on `index`, clamped to its entries. Exposed for tests
+    /// that drive an entry the way a wheel or the arrows would, without synthesizing geometry.
+    pub fn set_menu_cursor(&mut self, index: usize) {
+        if let Some(menu) = self.modal.context_menu_mut() {
+            menu.cursor = index.min(menu.items.len().saturating_sub(1));
+        }
     }
 
     /// Whether the open finder is still indexing or matching its current query.

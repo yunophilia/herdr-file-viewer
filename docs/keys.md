@@ -140,11 +140,20 @@ The viewer is keyboard-first; the mouse is additive and on by default:
 | **Drag** the divider | Resize the tree / content split |
 | **Drag** over the content text | **Select and copy text**: the selection highlights character-by-character as you drag (auto-scrolling past an edge) and is copied to the clipboard on release; no mode needed. Works in wrapped views (prose/markdown) too. `Esc`, a click elsewhere, or switching files clears the highlight |
 | **Click** a status-bar chip | Perform the toggle the chip shows (`b` baseline, `c` changed-only, `d` status mode, `v` view mode, `w` wrap); see below |
+| **Right-click** a tree row | Select that row and open its action menu: open/zoom, expand or collapse a folder, copy path, copy absolute path, annotate, open in editor, pin |
+| **Right-click** the content pane | Open its action menu: cycle view, wrap, diff presentation, copy selection (while a selection stands) |
+| `↑` / `↓`, wheel, `Enter`, `Esc` in a context menu | Move the highlight, perform the entry, dismiss |
+| **Click** outside an open context menu | Dismiss it (the click is swallowed, so it never changes the selection underneath) |
 
 **Status bar.** The bottom row of the viewer is a status/action bar showing the live toggle
 state as clickable chips: the diff baseline (`b`), the changed-only filter (`c`), git-status
 mode (`d`), the current view mode (`v`), and wrap (`w`). A lit chip means the toggle is engaged;
 a dim chip is idle. Clicking a chip does exactly what its key does, and the key still works.
+
+**Context menu.** Every entry names the key that performs it, so the menu is a mouse surface
+onto the existing keyboard vocabulary rather than a separate feature: nothing here is
+mouse-only. Selecting an entry runs the same handler as its key. The menu dismisses on `Esc`,
+`q`, a click outside it, or on performing an entry.
 
 **`Shift`+drag is left to your terminal**, so its native select-and-copy still works while the
 viewer owns ordinary clicks: herdr reserves `Shift`+mouse for exactly this. (herdr forwards
